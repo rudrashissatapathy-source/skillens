@@ -128,6 +128,11 @@ CUSTOM_CSS = """
         color: #34D399;
         border: 1px solid rgba(16, 185, 129, 0.4);
     }
+    .tier-blue {
+        background: rgba(59, 130, 246, 0.18);
+        color: #60A5FA;
+        border: 1px solid rgba(59, 130, 246, 0.4);
+    }
     .tier-med {
         background: rgba(245, 158, 11, 0.18);
         color: #FBBF24;
@@ -137,6 +142,11 @@ CUSTOM_CSS = """
         background: rgba(239, 68, 68, 0.18);
         color: #F87171;
         border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+    .tier-critical {
+        background: rgba(220, 38, 38, 0.25);
+        color: #FCA5A5;
+        border: 1px solid rgba(220, 38, 38, 0.6);
     }
 
     /* Diagnostic Box */
@@ -308,7 +318,7 @@ with st.sidebar:
         index=0,
     )
 
-    # Preset values dictionary
+    # Preset values dictionary (calibrated to empirical cohort statistics)
     preset_values: Dict[str, Any] = {}
     if preset == "🌟 High Achiever (Top Tier)":
         preset_values = {
@@ -316,8 +326,8 @@ with st.sidebar:
             "Internships": 2,
             "Projects": 3,
             "Workshops/Certifications": 2,
-            "AptitudeTestScore": 90,
-            "SoftSkillsRating": 4.8,
+            "AptitudeTestScore": 88,
+            "SoftSkillsRating": 4.7,
             "ExtracurricularActivities": "Yes",
             "PlacementTraining": "Yes",
             "SSC_Marks": 85,
@@ -325,25 +335,25 @@ with st.sidebar:
         }
     elif preset == "⚖️ Average Engineering Student":
         preset_values = {
-            "CGPA": 7.4,
+            "CGPA": 7.7,
             "Internships": 1,
             "Projects": 2,
             "Workshops/Certifications": 1,
-            "AptitudeTestScore": 72,
-            "SoftSkillsRating": 3.8,
-            "ExtracurricularActivities": "No",
+            "AptitudeTestScore": 80,
+            "SoftSkillsRating": 4.4,
+            "ExtracurricularActivities": "Yes",
             "PlacementTraining": "Yes",
-            "SSC_Marks": 68,
-            "HSC_Marks": 72,
+            "SSC_Marks": 70,
+            "HSC_Marks": 74,
         }
     elif preset == "⚠️ Borderline / At-Risk Candidate":
         preset_values = {
-            "CGPA": 6.7,
+            "CGPA": 6.8,
             "Internships": 0,
             "Projects": 1,
             "Workshops/Certifications": 0,
-            "AptitudeTestScore": 60,
-            "SoftSkillsRating": 3.2,
+            "AptitudeTestScore": 65,
+            "SoftSkillsRating": 3.5,
             "ExtracurricularActivities": "No",
             "PlacementTraining": "No",
             "SSC_Marks": 58,
@@ -351,25 +361,25 @@ with st.sidebar:
         }
     elif preset == "🚀 High Practical, Moderate Academic":
         preset_values = {
-            "CGPA": 7.1,
-            "Internships": 3,
-            "Projects": 4,
-            "Workshops/Certifications": 3,
+            "CGPA": 7.4,
+            "Internships": 2,
+            "Projects": 3,
+            "Workshops/Certifications": 2,
             "AptitudeTestScore": 84,
             "SoftSkillsRating": 4.5,
             "ExtracurricularActivities": "Yes",
             "PlacementTraining": "Yes",
-            "SSC_Marks": 65,
-            "HSC_Marks": 70,
+            "SSC_Marks": 68,
+            "HSC_Marks": 72,
         }
     elif preset == "📚 High CGPA, Low Practical Experience":
         preset_values = {
-            "CGPA": 8.9,
+            "CGPA": 8.8,
             "Internships": 0,
             "Projects": 1,
             "Workshops/Certifications": 0,
-            "AptitudeTestScore": 68,
-            "SoftSkillsRating": 3.4,
+            "AptitudeTestScore": 72,
+            "SoftSkillsRating": 3.8,
             "ExtracurricularActivities": "No",
             "PlacementTraining": "No",
             "SSC_Marks": 88,
@@ -506,18 +516,36 @@ explanation = explainer_engine.explain_instance(student_input)
 pred_prob = explanation.predicted_probability
 is_placed = pred_prob >= threshold
 
-if pred_prob >= 0.75:
+if pred_prob >= 0.80:
     tier_class = "tier-high"
-    tier_label = "Placement Ready (High Tier)"
+    tier_label = "Top Tier Candidate"
     status_color = "#10B981"
-elif pred_prob >= 0.45:
+    verdict_badge = "🟢 Strong Hire / Priority Shortlist"
+    verdict_sub = "Satisfies premier recruitment benchmarks"
+elif pred_prob >= 0.65:
+    tier_class = "tier-blue"
+    tier_label = "Competitive Prospect"
+    status_color = "#3B82F6"
+    verdict_badge = "🔵 Viable Prospect / Selective Shortlist"
+    verdict_sub = "Competitive profile with minor gaps"
+elif pred_prob >= 0.50:
     tier_class = "tier-med"
-    tier_label = "Skill Refinement Needed (Moderate Tier)"
+    tier_label = "Borderline / High Screening Risk"
     status_color = "#F59E0B"
-else:
+    verdict_badge = "🟠 Borderline / First-Round Screening Hazard"
+    verdict_sub = "High probability of elimination in resume/OA screen"
+elif pred_prob >= 0.35:
     tier_class = "tier-low"
-    tier_label = "High Intervention Needed (Low Tier)"
+    tier_label = "Below Hiring Threshold"
     status_color = "#EF4444"
+    verdict_badge = "🔴 Below Cutoff / Probable Rejection"
+    verdict_sub = "Sub-threshold across multiple recruitment metrics"
+else:
+    tier_class = "tier-critical"
+    tier_label = "Severe Placement Deficit"
+    status_color = "#DC2626"
+    verdict_badge = "🚨 Critical Disqualification Risk"
+    verdict_sub = "Immediate resume elimination across campus drives"
 
 
 # -----------------------------------------------------------------------------
@@ -577,12 +605,14 @@ with tab1:
         )
 
     with m_col4:
-        confidence = abs(pred_prob - threshold) / (1 - threshold if pred_prob >= threshold else threshold)
         st.markdown(
             f"""
             <div class="metric-card">
-                <div class="metric-label">Model Confidence</div>
-                <div class="metric-value">{confidence * 100:.1f}%</div>
+                <div class="metric-label">Recruiter Verdict</div>
+                <div style="margin-top: 0.35rem; font-size: 0.95rem; font-weight: 700; color: {status_color};">
+                    {verdict_badge}
+                </div>
+                <div style="font-size: 0.76rem; color: #94A3B8; margin-top: 0.2rem;">{verdict_sub}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -609,9 +639,11 @@ with tab1:
                     "borderwidth": 1,
                     "bordercolor": "rgba(255,255,255,0.1)",
                     "steps": [
-                        {"range": [0, 45], "color": "rgba(239, 68, 68, 0.15)"},
-                        {"range": [45, 75], "color": "rgba(245, 158, 11, 0.15)"},
-                        {"range": [75, 100], "color": "rgba(16, 185, 129, 0.15)"},
+                        {"range": [0, 35], "color": "rgba(220, 38, 38, 0.25)"},
+                        {"range": [35, 50], "color": "rgba(239, 68, 68, 0.18)"},
+                        {"range": [50, 65], "color": "rgba(245, 158, 11, 0.18)"},
+                        {"range": [65, 80], "color": "rgba(59, 130, 246, 0.18)"},
+                        {"range": [80, 100], "color": "rgba(16, 185, 129, 0.2)"},
                     ],
                     "threshold": {
                         "line": {"color": "#6366F1", "width": 3},
@@ -820,18 +852,14 @@ with tab2:
             st.session_state["sim_extra"] = student_input["ExtracurricularActivities"]
             st.rerun()
 
-        sim_cgpa = st.slider("Simulated CGPA:", 5.0, 10.0, float(st.session_state.get("sim_cgpa", student_input["CGPA"])), 0.1, key="sim_cgpa")
-        sim_intern = st.number_input("Simulated Internships:", 0, 5, int(st.session_state.get("sim_intern", student_input["Internships"])), key="sim_intern")
-        sim_proj = st.number_input("Simulated Projects:", 0, 6, int(st.session_state.get("sim_proj", student_input["Projects"])), key="sim_proj")
-        sim_cert = st.number_input("Simulated Certifications:", 0, 5, int(st.session_state.get("sim_cert", student_input["Workshops/Certifications"])), key="sim_cert")
-        sim_apt = st.slider("Simulated Aptitude Score:", 40, 100, int(st.session_state.get("sim_apt", student_input["AptitudeTestScore"])), 1, key="sim_apt")
-        sim_soft = st.slider("Simulated Soft Skills:", 1.0, 5.0, float(st.session_state.get("sim_soft", student_input["SoftSkillsRating"])), 0.1, key="sim_soft")
-        
-        train_idx = 0 if st.session_state.get("sim_train", student_input["PlacementTraining"]) == "Yes" else 1
-        sim_train = st.selectbox("Placement Training:", ["Yes", "No"], index=train_idx, key="sim_train")
-        
-        extra_idx = 0 if st.session_state.get("sim_extra", student_input["ExtracurricularActivities"]) == "Yes" else 1
-        sim_extra = st.selectbox("Extracurricular Activities:", ["Yes", "No"], index=extra_idx, key="sim_extra")
+        sim_cgpa = st.slider("Simulated CGPA:", 5.0, 10.0, step=0.1, key="sim_cgpa")
+        sim_intern = st.number_input("Simulated Internships:", 0, 5, step=1, key="sim_intern")
+        sim_proj = st.number_input("Simulated Projects:", 0, 6, step=1, key="sim_proj")
+        sim_cert = st.number_input("Simulated Certifications:", 0, 5, step=1, key="sim_cert")
+        sim_apt = st.slider("Simulated Aptitude Score:", 40, 100, step=1, key="sim_apt")
+        sim_soft = st.slider("Simulated Soft Skills:", 1.0, 5.0, step=0.1, key="sim_soft")
+        sim_train = st.selectbox("Placement Training:", ["Yes", "No"], key="sim_train")
+        sim_extra = st.selectbox("Extracurricular Activities:", ["Yes", "No"], key="sim_extra")
 
         simulated_student = {
             **student_input,

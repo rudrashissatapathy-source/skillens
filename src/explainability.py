@@ -179,13 +179,17 @@ class ExplainabilityEngine:
             dec = float(self.model.decision_function(X_trans)[0])
             proba = float(1 / (1 + np.exp(-dec)))
 
-        # Assign readiness tier
-        if proba >= 0.75:
-            tier = "High Readiness (Placement Ready)"
-        elif proba >= 0.45:
-            tier = "Moderate Readiness (Targeted Skill Refinement Needed)"
+        # Assign realistic recruitment readiness tier (No sugarcoating)
+        if proba >= 0.80:
+            tier = "High Placement Probability (Top Tier Competitor)"
+        elif proba >= 0.65:
+            tier = "Viable Placement Prospect (Competitive with Gaps)"
+        elif proba >= 0.50:
+            tier = "Borderline / High Screening Elimination Risk"
+        elif proba >= 0.35:
+            tier = "Below Hiring Threshold (Probable Rejection)"
         else:
-            tier = "Low Readiness (High Academic & Practical Intervention Needed)"
+            tier = "Severe Placement Deficit (Immediate Overhaul Required)"
 
         # 3. Compute local SHAP / feature contributions
         feature_impacts: List[FactorImpact] = []
@@ -212,14 +216,24 @@ class ExplainabilityEngine:
         else:
             feature_impacts = self._heuristic_feature_contributions(raw_input_dict, X_trans)
 
-        # Sort factors
-        positive_factors = [f for f in feature_impacts if f.impact_score > 0]
-        negative_factors = [f for f in feature_impacts if f.impact_score < 0]
+        # Enforce domain sanity: below-average or 0-values must NEVER be falsely labeled as strengths
+        positive_factors = [
+            f for f in feature_impacts
+            if f.impact_score > 0 and self._is_genuine_strength(f.feature, f.value)
+        ]
+
+        # Liabilities: negative model impact OR metrics that fall below baseline recruiter cutoffs
+        negative_factors = [
+            f for f in feature_impacts
+            if f.impact_score < 0 or self._is_genuine_liability(f.feature, f.value)
+        ]
 
         positive_factors.sort(key=lambda x: abs(x.impact_score), reverse=True)
-        negative_factors.sort(key=lambda x: abs(x.impact_score), reverse=True)
+        negative_factors.sort(
+            key=lambda x: (not self._is_genuine_liability(x.feature, x.value), -abs(x.impact_score))
+        )
 
-        # Generate narrative summary
+        # Generate narrative summary & actionable recommendations
         narrative = self._generate_narrative(proba, tier, positive_factors, negative_factors)
         recommendations = self._generate_recommendations(negative_factors, raw_input_dict)
 
@@ -325,6 +339,65 @@ class ExplainabilityEngine:
         impacts.sort(key=lambda x: abs(x.impact_score), reverse=True)
         return impacts
 
+    @staticmethod
+    def _is_genuine_strength(feature: str, val: Any) -> bool:
+        """
+        Validates whether a feature value is genuinely an asset in hiring reality.
+        Prevents counter-intuitive anomalies where SHAP background centering might assign
+        a small positive contribution to a deficit (e.g. 0 internships or low CGPA).
+        """
+        try:
+            num_val = float(val)
+        except (ValueError, TypeError):
+            s_val = str(val).strip().lower()
+            return s_val in {"yes", "true", "1"}
+
+        if feature == "Internships":
+            return num_val >= 1
+        elif feature == "Projects":
+            return num_val >= 2
+        elif feature == "CGPA":
+            return num_val >= 7.5
+        elif feature == "AptitudeTestScore":
+            return num_val >= 78.0
+        elif feature == "SoftSkillsRating":
+            return num_val >= 4.0
+        elif feature in {"SSC_Marks", "HSC_Marks"}:
+            return num_val >= 70.0
+        elif feature == "Workshops/Certifications":
+            return num_val >= 1
+
+        return True
+
+    @staticmethod
+    def _is_genuine_liability(feature: str, val: Any) -> bool:
+        """
+        Identifies metrics that fall below baseline industry screening cutoffs,
+        ensuring they are highlighted as liabilities even if SHAP values are near zero.
+        """
+        try:
+            num_val = float(val)
+        except (ValueError, TypeError):
+            s_val = str(val).strip().lower()
+            return s_val in {"no", "false", "0"}
+
+        if feature == "Internships":
+            return num_val < 1
+        elif feature == "Projects":
+            return num_val < 2
+        elif feature == "CGPA":
+            return num_val < 7.2
+        elif feature == "AptitudeTestScore":
+            return num_val < 75.0
+        elif feature == "SoftSkillsRating":
+            return num_val < 4.0
+        elif feature in {"SSC_Marks", "HSC_Marks"}:
+            return num_val < 65.0
+        elif feature == "Workshops/Certifications":
+            return num_val < 1
+
+        return False
+
     def _get_display_name(self, feat: str) -> str:
         """Returns clean user-friendly label for a feature name."""
         for orig, friendly in self.FRIENDLY_FEATURE_NAMES.items():
@@ -339,19 +412,34 @@ class ExplainabilityEngine:
         positives: List[FactorImpact],
         negatives: List[FactorImpact],
     ) -> str:
-        """Constructs an intelligent natural-language summary for the student's profile."""
+        """Constructs an intelligent natural-language summary for the student's profile without sugarcoating."""
         pct = proba * 100.0
         pos_names = [f"**{p.feature_display_name}** ({p.value})" for p in positives[:2]]
-        neg_names = [f"**{n.feature_display_name}** ({n.value})" for n in negatives[:2]]
+        neg_names = [f"**{n.feature_display_name}** ({n.value})" for n in negatives[:3]]
 
-        narrative = f"The candidate has a **{pct:.1f}% Placement Readiness Score**, classifying them in the **{tier}** category. "
+        # Unvarnished recruiter assessment
+        if proba >= 0.80:
+            verdict = "🟢 **RECRUITER VERDICT: STRONG HIRE / SHORTLIST.** Profile exhibits strong technical readiness and satisfies premier campus recruitment cutoffs."
+        elif proba >= 0.65:
+            verdict = "🟡 **RECRUITER VERDICT: COMPETITIVE / SELECTIVE.** Viable candidate for general campus drives, but vulnerable in competitive technical shortlists."
+        elif proba >= 0.50:
+            verdict = "🟠 **RECRUITER VERDICT: BORDERLINE / SCREENING RISK.** High probability of elimination in initial technical or aptitude screening rounds."
+        elif proba >= 0.35:
+            verdict = "🔴 **RECRUITER VERDICT: BELOW HIRING THRESHOLD.** Significant deficiencies detected. Immediate remediation required before attending campus drives."
+        else:
+            verdict = "🚨 **RECRUITER VERDICT: IMMEDIATE REJECTION RISK.** Profile falls critically short of baseline industry standards across core dimensions."
+
+        narrative = f"{verdict}<br><br>The candidate holds a **{pct:.1f}% Placement Readiness Score** ({tier}). "
 
         if pos_names:
-            narrative += f"Primary strengths elevating the candidate's score include {', '.join(pos_names)}. "
-        if neg_names:
-            narrative += f"Conversely, significant headwinds reducing the placement likelihood include {', '.join(neg_names)}. "
+            narrative += f"Demonstrated strengths include {', '.join(pos_names)}. "
         else:
-            narrative += "No severe skill deficits were identified across the core evaluation metrics."
+            narrative += "No distinct competitive advantages were identified on the resume. "
+
+        if neg_names:
+            narrative += f"Primary disqualification risks and performance bottlenecks include {', '.join(neg_names)}."
+        else:
+            narrative += "Candidate meets or exceeds minimum screening thresholds across all tracked attributes."
 
         return narrative
 
@@ -360,30 +448,42 @@ class ExplainabilityEngine:
         negatives: List[FactorImpact],
         raw_input: Dict[str, Any],
     ) -> List[str]:
-        """Generates prioritized, tailored action steps for student skill improvement."""
+        """Generates prioritized, tailored action steps for student skill improvement without sugarcoating."""
         recs = []
-        for neg in negatives[:3]:
+
+        # Check critical deal-breakers first
+        cgpa = float(raw_input.get("CGPA", 7.0))
+        interns = int(raw_input.get("Internships", 0))
+        projects = int(raw_input.get("Projects", 0))
+        aptitude = float(raw_input.get("AptitudeTestScore", 70))
+        training = str(raw_input.get("PlacementTraining", "No")).strip().lower()
+
+        if cgpa < 7.0:
+            recs.append(f"🎯 **Academic Cutoff Alert (CGPA {cgpa:.1f}):** Most Tier-1 tech recruiters enforce a rigid 7.0 or 7.5 CGPA initial eligibility filter. Prioritize semester examinations immediately to cross 7.5.")
+        if interns == 0:
+            recs.append("💼 **Zero Industry Experience Deficit:** Having 0 internships is a severe resume disqualifier in campus placements. Secure at least one verified industry internship or open-source fellowship immediately.")
+        if projects < 2:
+            recs.append(f"🚀 **Insufficient Project Portfolio ({projects} project{'s' if projects != 1 else ''}):** Recruiters look for at least 2 deployed, full-stack or domain capstone projects with public GitHub repos to verify coding competency.")
+        if aptitude < 75:
+            recs.append(f"🧠 **Aptitude Screen Hazard ({aptitude:.0f}/90):** Candidate is likely to fail the first-round online assessment (OA). Daily timed practice on quantitative math, DI, and logical reasoning is mandatory.")
+        if training in {"no", "0", "false"}:
+            recs.append("📚 **Formal Placement Training Gap:** Candidate has not completed placement training. Enroll in mock interview bootcamps and algorithmic problem-solving sprints immediately.")
+
+        # Fill remaining recs from other negatives if fewer than 4
+        for neg in negatives:
+            if len(recs) >= 4:
+                break
             feat = neg.feature
             val = neg.value
-            if feat == "CGPA":
-                recs.append(f"🎯 **Academic Priority:** Current CGPA is {val}. Target scoring > 8.0 in upcoming semesters to satisfy recruiter shortlisting thresholds.")
-            elif feat == "Internships":
-                recs.append(f"💼 **Practical Experience:** Candidate currently has {val} internship(s). Pursue at least 1-2 industry internships or open-source fellowships.")
-            elif feat == "Projects":
-                recs.append(f"🚀 **Project Portfolio:** Build and deploy 2+ full-stack production-grade projects showcasing problem-solving and software design.")
-            elif feat == "AptitudeTestScore":
-                recs.append(f"🧠 **Aptitude Mastery:** Aptitude score is {val}. Take weekly mock speed tests in quantitative math and logical reasoning.")
-            elif feat == "SoftSkillsRating":
-                recs.append(f"🗣️ **Communication:** Soft skills rating is {val}/5.0. Participate in Toastmasters, presentation workshops, or peer interview prep.")
-            elif feat == "PlacementTraining":
-                recs.append("📚 **Bootcamp Enrollment:** Candidate has not undergone structured placement training. Enrolling in mock interview cycles is strongly recommended.")
-            elif feat == "Workshops/Certifications":
-                recs.append("📜 **Certifications:** Earn 1-2 cloud or engineering industry certifications to substantiate practical skills.")
-            else:
-                recs.append(f"⚡ **{neg.feature_display_name}:** {neg.actionable_tip}")
+            if feat == "SoftSkillsRating" and float(val) < 4.0:
+                recs.append(f"🗣️ **Communication / HR Round Risk ({val}/5.0):** Low soft skills rating risks elimination in behavioral/managerial rounds. Engage in mock GDs and recorded technical presentation sessions.")
+            elif feat == "ExtracurricularActivities" and str(val).lower() in {"no", "0"}:
+                recs.append("🏆 **Extracurricular Deficit:** Lack of extracurricular involvement weakens resume impact; join tech clubs, hackathons, or leadership committees.")
+            elif feat == "Workshops/Certifications" and int(val) == 0:
+                recs.append("📜 **Missing Industry Credentials:** Complete 1-2 recognized cloud/engineering certifications (e.g. AWS, Azure, Google) to validate domain knowledge.")
 
         if not recs:
-            recs.append("🌟 **Maintain Momentum:** Profile is highly competitive. Focus on mock executive interviews and salary negotiation strategies.")
+            recs.append("🌟 **Maintain Momentum:** Profile satisfies core placement cutoffs. Focus on high-level system design, behavioral storytelling, and targeted company research.")
 
         return recs
 

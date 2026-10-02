@@ -156,10 +156,9 @@ def train_baseline_model(
     y_train: np.ndarray,
     random_state: int = 42,
 ) -> LogisticRegression:
-    """Trains a regularized Logistic Regression baseline model with balanced class weights."""
+    """Trains a regularized Logistic Regression baseline model with calibrated probability outputs."""
     model = LogisticRegression(
-        C=1.0,
-        class_weight="balanced",
+        C=0.5,
         max_iter=1000,
         random_state=random_state,
         solver="lbfgs",
@@ -173,21 +172,35 @@ def train_advanced_model(
     y_train: np.ndarray,
     X_val: Optional[np.ndarray] = None,
     y_val: Optional[np.ndarray] = None,
+    feature_names: Optional[List[str]] = None,
     random_state: int = 42,
 ) -> Any:
     """
-    Trains an advanced gradient boosting model (XGBoost Classifier) with hyperparameter tuning,
-    or falls back to an ensemble Random Forest if XGBoost is unavailable.
+    Trains an advanced gradient boosting model (XGBoost Classifier) with hyperparameter tuning
+    and monotonic career domain constraints to guarantee realistic, non-contradictory predictions.
     """
     if HAS_XGBOOST:
+        constraints = None
+        if feature_names:
+            c_list = []
+            for f in feature_names:
+                if any(k in f for k in ['CGPA', 'Internships', 'Projects', 'Workshops', 'Aptitude', 'SoftSkills', 'SSC', 'HSC', 'Yes']):
+                    c_list.append(1)
+                elif 'No' in f:
+                    c_list.append(-1)
+                else:
+                    c_list.append(0)
+            constraints = tuple(c_list)
+
         model = XGBClassifier(
-            n_estimators=180,
+            n_estimators=200,
             max_depth=4,
-            learning_rate=0.06,
+            learning_rate=0.04,
             subsample=0.85,
             colsample_bytree=0.85,
             min_child_weight=2,
             gamma=0.1,
+            monotone_constraints=constraints,
             eval_metric="logloss",
             random_state=random_state,
             n_jobs=-1,
@@ -205,11 +218,10 @@ def train_advanced_model(
     else:
         # Fallback to Random Forest
         model = RandomForestClassifier(
-            n_estimators=200,
-            max_depth=6,
+            n_estimators=220,
+            max_depth=7,
             min_samples_split=4,
             min_samples_leaf=2,
-            class_weight="balanced",
             random_state=random_state,
             n_jobs=-1,
         )
@@ -460,7 +472,7 @@ def train_and_evaluate_all(
     )
 
     # 2. Train Advanced
-    advanced_model = train_advanced_model(X_train, y_train, X_val, y_val)
+    advanced_model = train_advanced_model(X_train, y_train, X_val, y_val, feature_names=feat_names)
     advanced_model_name = "Advanced (XGBoost Classifier)" if HAS_XGBOOST else "Advanced (Random Forest)"
     advanced_result = evaluate_model(
         advanced_model,
