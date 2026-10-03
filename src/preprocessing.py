@@ -4,10 +4,17 @@ Handles automated schema parsing, data validation, cleaning, imputing,
 categorical encoding, feature scaling, target mapping, and train/val/test splitting.
 """
 
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 import os
+
+# Ensure project root is in sys.path when executed directly as a script
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 import joblib
 import numpy as np
 import pandas as pd
