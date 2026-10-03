@@ -1045,20 +1045,35 @@ with tab3:
 
     st.divider()
 
-    # Global Feature Importance Chart (Cached)
+    # Global Feature Importance Chart (Instant / Pre-computed from Model Artifacts)
     st.markdown("#### 🌐 **Dataset Global Feature Importance**")
-    df_global_imp = get_cached_global_importance(
-        selected_model_type,
-        explainer_engine,
-        artifacts.pipeline.transform(df_raw.head(200)),
-    )
+    feat_imp = active_model_result.feature_importances
+    if feat_imp:
+        imp_rows = [
+            {
+                "feature": k,
+                "importance": v,
+                "display_name": explainer_engine.FRIENDLY_FEATURE_NAMES.get(k, k),
+            }
+            for k, v in feat_imp.items()
+        ]
+        df_global_imp = pd.DataFrame(imp_rows)
+        df_global_imp = df_global_imp.sort_values(by="importance", ascending=False).reset_index(drop=True)
+        total = df_global_imp["importance"].sum()
+        df_global_imp["relative_pct"] = (df_global_imp["importance"] / (total if total > 0 else 1.0)) * 100
+    else:
+        df_global_imp = get_cached_global_importance(
+            selected_model_type,
+            explainer_engine,
+            artifacts.pipeline.transform(df_raw.head(50)),
+        )
+
     fig_global = px.bar(
         df_global_imp,
         x="relative_pct",
         y="display_name",
         orientation="h",
-        color="relative_pct",
-        color_continuous_scale="Blues",
+        color_discrete_sequence=["#6366F1"],
         title=f"Global Feature Importance Weight Distribution ({model_display_title})",
     )
     fig_global.update_layout(
@@ -1069,7 +1084,6 @@ with tab3:
         font={"color": "#F8FAFC"},
         xaxis=dict(title="Relative Importance (%)", gridcolor="rgba(255,255,255,0.08)"),
         yaxis=dict(title="", autorange="reversed"),
-        coloraxis_showscale=False,
     )
     render_chart(fig_global)
 
@@ -1167,7 +1181,7 @@ with tab4:
         options=["CGPA", "AptitudeTestScore", "Projects", "Internships", "SoftSkillsRating", "SSC_Marks", "HSC_Marks"],
     )
     fig_box = px.box(
-        df_raw,
+        df_raw.sample(min(600, len(df_raw)), random_state=42),
         x="PlacementStatus",
         y=eda_feature,
         color="PlacementStatus",
