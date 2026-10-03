@@ -77,8 +77,14 @@ class ModelResult:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "ModelResult":
-        return cls(**d)
+    def from_dict(cls, d: Union[Dict[str, Any], "ModelResult"]) -> "ModelResult":
+        if isinstance(d, cls):
+            return d
+        if not isinstance(d, dict):
+            raise TypeError(f"Expected dict or {cls.__name__}, got {type(d)}")
+        valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in d.items() if k in valid_keys}
+        return cls(**filtered)
 
 
 @dataclass
@@ -112,8 +118,14 @@ class FailureCase:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "FailureCase":
-        return cls(**d)
+    def from_dict(cls, d: Union[Dict[str, Any], "FailureCase"]) -> "FailureCase":
+        if isinstance(d, cls):
+            return d
+        if not isinstance(d, dict):
+            raise TypeError(f"Expected dict or {cls.__name__}, got {type(d)}")
+        valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in d.items() if k in valid_keys}
+        return cls(**filtered)
 
 
 @dataclass
@@ -130,23 +142,30 @@ class ModelArtifacts:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "pipeline": self.pipeline,
-            "baseline_result": self.baseline_result.to_dict(),
-            "advanced_result": self.advanced_result.to_dict(),
-            "failure_log": [f.to_dict() for f in self.failure_log],
+            "baseline_result": self.baseline_result.to_dict() if hasattr(self.baseline_result, "to_dict") else self.baseline_result,
+            "advanced_result": self.advanced_result.to_dict() if hasattr(self.advanced_result, "to_dict") else self.advanced_result,
+            "failure_log": [f.to_dict() if hasattr(f, "to_dict") else f for f in self.failure_log],
             "test_df_raw": self.test_df_raw,
             "y_test": self.y_test,
             "trained_at": self.trained_at,
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "ModelArtifacts":
+    def from_dict(cls, d: Union[Dict[str, Any], "ModelArtifacts"]) -> "ModelArtifacts":
+        if isinstance(d, cls):
+            return d
+        if not isinstance(d, dict):
+            raise TypeError(f"Expected dict or {cls.__name__}, got {type(d)}")
+        baseline = d.get("baseline_result")
+        advanced = d.get("advanced_result")
+        failure_log = d.get("failure_log", [])
         return cls(
             pipeline=d["pipeline"],
-            baseline_result=ModelResult.from_dict(d["baseline_result"]),
-            advanced_result=ModelResult.from_dict(d["advanced_result"]),
-            failure_log=[FailureCase.from_dict(f) for f in d["failure_log"]],
-            test_df_raw=d["test_df_raw"],
-            y_test=d["y_test"],
+            baseline_result=ModelResult.from_dict(baseline) if baseline is not None else None,
+            advanced_result=ModelResult.from_dict(advanced) if advanced is not None else None,
+            failure_log=[FailureCase.from_dict(f) for f in failure_log] if failure_log else [],
+            test_df_raw=d.get("test_df_raw", pd.DataFrame()),
+            y_test=np.asarray(d.get("y_test", np.array([]))),
             trained_at=d.get("trained_at"),
         )
 
@@ -181,40 +200,67 @@ def train_advanced_model(
     """
     if HAS_XGBOOST:
         constraints = None
-        if feature_names:
+        if feature_names and len(feature_names) == X_train.shape[1]:
             c_list = []
             for f in feature_names:
-                if any(k in f for k in ['CGPA', 'Internships', 'Projects', 'Workshops', 'Aptitude', 'SoftSkills', 'SSC', 'HSC', 'Yes']):
+                f_upper = f.upper()
+                if (
+                    any(k in f_upper for k in ["CGPA", "INTERNSHIP", "PROJECT", "WORKSHOP", "CERTIF", "APTITUDE", "SOFTSKILL", "SSC", "HSC"])
+                    or f_upper.endswith("_YES")
+                    or f_upper.endswith("YES")
+                ):
                     c_list.append(1)
-                elif 'No' in f:
+                elif (
+                    f_upper.endswith("_NO")
+                    or f_upper.endswith("NO")
+                    or "BACKLOG" in f_upper
+                    or "ARREAR" in f_upper
+                ):
                     c_list.append(-1)
                 else:
                     c_list.append(0)
             constraints = tuple(c_list)
 
-        model = XGBClassifier(
-            n_estimators=200,
-            max_depth=4,
-            learning_rate=0.04,
-            subsample=0.85,
-            colsample_bytree=0.85,
-            min_child_weight=2,
-            gamma=0.1,
-            monotone_constraints=constraints,
-            eval_metric="logloss",
-            random_state=random_state,
-            n_jobs=-1,
-        )
-        if X_val is not None and y_val is not None:
-            model.fit(
-                X_train,
-                y_train,
-                eval_set=[(X_val, y_val)],
-                verbose=False,
+        try:
+            model = XGBClassifier(
+                n_estimators=200,
+                max_depth=4,
+                learning_rate=0.04,
+                subsample=0.85,
+                colsample_bytree=0.85,
+                min_child_weight=2,
+                gamma=0.1,
+                monotone_constraints=constraints,
+                eval_metric="logloss",
+                random_state=random_state,
+                n_jobs=-1,
             )
-        else:
+            if X_val is not None and y_val is not None:
+                model.fit(
+                    X_train,
+                    y_train,
+                    eval_set=[(X_val, y_val)],
+                    verbose=False,
+                )
+            else:
+                model.fit(X_train, y_train)
+            return model
+        except Exception:
+            # Fallback without constraints if monotonic constraint validation fails on runtime
+            model = XGBClassifier(
+                n_estimators=200,
+                max_depth=4,
+                learning_rate=0.04,
+                subsample=0.85,
+                colsample_bytree=0.85,
+                min_child_weight=2,
+                gamma=0.1,
+                eval_metric="logloss",
+                random_state=random_state,
+                n_jobs=-1,
+            )
             model.fit(X_train, y_train)
-        return model
+            return model
     else:
         # Fallback to Random Forest
         model = RandomForestClassifier(
@@ -240,17 +286,27 @@ def evaluate_model(
     """
     Evaluates model performance across test data, computing comprehensive classification metrics.
     """
+    y_test = np.asarray(y_test)
+    decision_threshold = float(np.clip(decision_threshold, 0.0, 1.0))
+
     if hasattr(model, "predict_proba"):
         proba_all = model.predict_proba(X_test)
-        y_proba = proba_all[:, 1] if proba_all.shape[1] > 1 else proba_all[:, 0]
+        if proba_all.shape[1] > 1:
+            y_proba = proba_all[:, 1]
+        elif hasattr(model, "classes_") and len(model.classes_) == 1:
+            y_proba = np.ones(len(X_test)) if model.classes_[0] == 1 else np.zeros(len(X_test))
+        else:
+            y_proba = proba_all[:, 0]
     else:
         # Decision function fallback
         dec = model.decision_function(X_test)
         y_proba = 1 / (1 + np.exp(-dec))
 
+    y_proba = np.nan_to_num(y_proba, nan=0.5, posinf=1.0, neginf=0.0)
+    y_proba = np.clip(y_proba, 0.0, 1.0)
     y_pred = (y_proba >= decision_threshold).astype(int)
 
-    acc = float(accuracy_score(y_test, y_pred))
+    acc = float(accuracy_score(y_test, y_pred)) if len(y_test) > 0 else 0.0
     prec = float(precision_score(y_test, y_pred, zero_division=0))
     rec = float(recall_score(y_test, y_pred, zero_division=0))
     f1 = float(f1_score(y_test, y_pred, zero_division=0))
@@ -267,20 +323,28 @@ def evaluate_model(
     except Exception:
         prec_curve, rec_curve = np.array([1, 0]), np.array([0, 1])
 
-    cm = confusion_matrix(y_test, y_pred)
-    report_dict = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+    # Explicit labels=[0, 1] guarantees (2, 2) shape even for single-class subsets
+    cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
+    report_dict = classification_report(y_test, y_pred, labels=[0, 1], output_dict=True, zero_division=0)
 
-    # Extract feature importances if available
+    # Extract feature importances if available (robust to 1D and 2D coefs)
     feat_importances = None
-    if feature_names:
-        if hasattr(model, "feature_importances_"):
-            importances = model.feature_importances_
-            feat_importances = {name: float(imp) for name, imp in zip(feature_names, importances)}
-        elif hasattr(model, "coef_"):
-            coefs = np.abs(model.coef_[0])
-            total = np.sum(coefs) if np.sum(coefs) > 0 else 1.0
-            norm_coefs = coefs / total
+    if hasattr(model, "feature_importances_"):
+        raw_imp = np.asarray(model.feature_importances_)
+        if feature_names and len(feature_names) == len(raw_imp):
+            feat_importances = {name: float(imp) for name, imp in zip(feature_names, raw_imp)}
+        else:
+            feat_importances = {f"Feature_{i}": float(imp) for i, imp in enumerate(raw_imp)}
+    elif hasattr(model, "coef_"):
+        coefs = np.abs(np.squeeze(model.coef_))
+        if coefs.ndim == 0:
+            coefs = np.array([float(coefs)])
+        total = np.sum(coefs) if np.sum(coefs) > 0 else 1.0
+        norm_coefs = coefs / total
+        if feature_names and len(feature_names) == len(norm_coefs):
             feat_importances = {name: float(c) for name, c in zip(feature_names, norm_coefs)}
+        else:
+            feat_importances = {f"Feature_{i}": float(c) for i, c in enumerate(norm_coefs)}
 
     return ModelResult(
         model_name=model_name,
@@ -309,6 +373,7 @@ def generate_failure_analysis_log(
     advanced_result: ModelResult,
     pipeline: PlacementDataPipeline,
     min_cases: int = 20,
+    max_cases: int = 50,
 ) -> List[FailureCase]:
     """
     Extracts at least 20 misclassified or high-uncertainty predictions from the test set,
@@ -329,7 +394,8 @@ def generate_failure_analysis_log(
         gap = abs(prob - 0.5)
 
         raw_row = test_df_raw.iloc[idx].to_dict()
-        student_id = raw_row.get(id_col, f"Student-{idx+1}") if id_col else f"Student-{idx+1}"
+        clean_row = {str(k): (v.item() if hasattr(v, "item") else v) for k, v in raw_row.items()}
+        student_id = clean_row.get(id_col, f"Student-{idx+1}") if id_col else f"Student-{idx+1}"
 
         is_error = true_y != pred_y
         is_uncertain = 0.40 <= prob <= 0.60
@@ -344,12 +410,12 @@ def generate_failure_analysis_log(
 
             # Formulate diagnostic reason based on student features
             reason_parts = []
-            cgpa = raw_row.get("CGPA", None)
-            aptitude = raw_row.get("AptitudeTestScore", None)
-            internships = raw_row.get("Internships", None)
-            projects = raw_row.get("Projects", None)
-            soft_skills = raw_row.get("SoftSkillsRating", None)
-            training = raw_row.get("PlacementTraining", None)
+            cgpa = clean_row.get("CGPA", None)
+            aptitude = clean_row.get("AptitudeTestScore", None)
+            internships = clean_row.get("Internships", None)
+            projects = clean_row.get("Projects", None)
+            soft_skills = clean_row.get("SoftSkillsRating", None)
+            training = clean_row.get("PlacementTraining", None)
 
             if err_type == "False Positive":
                 # Model predicted Placed (1), but actual was Not Placed (0)
@@ -383,7 +449,7 @@ def generate_failure_analysis_log(
 
             records.append(
                 FailureCase(
-                    sample_index=idx,
+                    sample_index=int(idx),
                     student_id=student_id,
                     true_label=true_y,
                     true_status="Placed" if true_y == 1 else "Not Placed",
@@ -392,7 +458,7 @@ def generate_failure_analysis_log(
                     predicted_probability=prob,
                     confidence_gap=gap,
                     error_type=err_type,
-                    feature_values=raw_row,
+                    feature_values=clean_row,
                     diagnostic_reason=diagnostic_str,
                 )
             )
@@ -411,13 +477,14 @@ def generate_failure_analysis_log(
         remaining.sort(key=lambda x: x[1])
         for idx, gap in remaining[: (min_cases - len(records))]:
             raw_row = test_df_raw.iloc[idx].to_dict()
-            student_id = raw_row.get(id_col, f"Student-{idx+1}") if id_col else f"Student-{idx+1}"
+            clean_row = {str(k): (v.item() if hasattr(v, "item") else v) for k, v in raw_row.items()}
+            student_id = clean_row.get(id_col, f"Student-{idx+1}") if id_col else f"Student-{idx+1}"
             prob = float(y_proba[idx])
             t_y = int(y_test[idx])
             p_y = int(y_pred[idx])
             records.append(
                 FailureCase(
-                    sample_index=idx,
+                    sample_index=int(idx),
                     student_id=student_id,
                     true_label=t_y,
                     true_status="Placed" if t_y == 1 else "Not Placed",
@@ -426,12 +493,12 @@ def generate_failure_analysis_log(
                     predicted_probability=prob,
                     confidence_gap=gap,
                     error_type="Borderline Case",
-                    feature_values=raw_row,
+                    feature_values=clean_row,
                     diagnostic_reason=f"Candidate near decision boundary (P={prob*100:.1f}%)",
                 )
             )
 
-    return records[: max(min_cases, len([r for r in records if r.error_type in ("False Positive", "False Negative")]))]
+    return records[: max(min_cases, min(max_cases, len(records)))]
 
 
 def train_and_evaluate_all(
@@ -513,13 +580,20 @@ def load_model_artifacts(
     artifacts_path: Union[str, Path] = "models/model_artifacts.joblib",
     retrain_if_missing: bool = True,
 ) -> ModelArtifacts:
-    """Loads existing artifacts or triggers automated retraining if not found."""
+    """Loads existing artifacts or triggers automated retraining if not found or corrupted."""
     path = Path(artifacts_path)
     if path.exists():
-        raw_dict = joblib.load(path)
-        if isinstance(raw_dict, dict):
-            return ModelArtifacts.from_dict(raw_dict)
-        return raw_dict
+        try:
+            raw_dict = joblib.load(path)
+            if isinstance(raw_dict, dict):
+                return ModelArtifacts.from_dict(raw_dict)
+            elif isinstance(raw_dict, ModelArtifacts):
+                return raw_dict
+        except Exception:
+            # File may be corrupted, partial, or pickled under an incompatible environment
+            if retrain_if_missing:
+                return train_and_evaluate_all(save_path=path)
+            raise
     if retrain_if_missing:
         return train_and_evaluate_all(save_path=path)
     raise FileNotFoundError(f"Model artifacts not found at {path.resolve()}")
