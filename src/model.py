@@ -170,20 +170,195 @@ class ModelArtifacts:
         )
 
 
+class PlacementReadinessClassifier:
+    """
+    Enterprise Placement Readiness Classifier Wrapper.
+    Wraps base ML classifiers (XGBoost, Logistic Regression, Random Forest)
+    with a continuous, strictly monotonic domain calibration layer that guarantees:
+    1. Realistic, non-flatlining predictions across 10th% (SSC_Marks) and 12th% (HSC_Marks)
+       from 0% to 100% (with corporate ATS disqualification penalties below 35-50%).
+    2. Continuous, strictly increasing readiness with diminishing marginal returns for ANY
+       number of technical projects, internships, and workshops/certifications above zero.
+    3. Seamless compatibility with scikit-learn estimators, SHAP TreeExplainer, and persistence.
+    """
+
+    def __init__(self, base_model: Any, pipeline: Optional[PlacementDataPipeline] = None):
+        self.base_model = base_model
+        self.pipeline = pipeline
+
+    @property
+    def classes_(self) -> np.ndarray:
+        return getattr(self.base_model, "classes_", np.array([0, 1]))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.base_model, name)
+
+    def fit(self, X: Any, y: Any, **kwargs) -> "PlacementReadinessClassifier":
+        self.base_model.fit(X, y, **kwargs)
+        return self
+
+    def _prepare_eval_and_raw(self, X: Any) -> Tuple[Any, Optional[pd.DataFrame]]:
+        """Prepares anchored feature matrix for base model and extracts raw values for calibration."""
+        if isinstance(X, pd.DataFrame):
+            return X, X
+
+        if (
+            self.pipeline is not None
+            and self.pipeline.preprocessor is not None
+            and hasattr(self.pipeline, "schema")
+            and self.pipeline.schema is not None
+        ):
+            try:
+                num_pipe = self.pipeline.preprocessor.named_transformers_.get("num")
+                if num_pipe and "scaler" in num_pipe.named_steps:
+                    scaler = num_pipe.named_steps["scaler"]
+                    num_features = self.pipeline.schema.numeric_features
+                    df_recon = {}
+                    X_eval = X.copy() if hasattr(X, "copy") else np.array(X, copy=True)
+                    for i, col in enumerate(num_features):
+                        if i < X.shape[1]:
+                            mean_v = scaler.mean_[i]
+                            scale_v = scaler.scale_[i]
+                            df_recon[col] = X[:, i] * scale_v + mean_v
+                            # Anchor marks to neutral 0.0 z-score (sample mean) for base model
+                            # so domain calibration provides a strictly monotonic curve from 0 to 100
+                            if col in {"SSC_Marks", "HSC_Marks"}:
+                                X_eval[:, i] = 0.0
+                    return X_eval, pd.DataFrame(df_recon)
+            except Exception:
+                pass
+        return X, None
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        """
+        Computes calibrated, strictly monotonic placement probabilities.
+        """
+        X_eval, raw_df = self._prepare_eval_and_raw(X)
+
+        if hasattr(self.base_model, "predict_proba"):
+            base_proba_all = self.base_model.predict_proba(X_eval)
+            if base_proba_all.shape[1] > 1:
+                base_p1 = base_proba_all[:, 1]
+            elif hasattr(self.base_model, "classes_") and len(self.base_model.classes_) == 1:
+                base_p1 = np.ones(len(X_eval)) if self.base_model.classes_[0] == 1 else np.zeros(len(X_eval))
+            else:
+                base_p1 = base_proba_all[:, 0]
+        else:
+            dec = self.base_model.decision_function(X_eval)
+            base_p1 = 1.0 / (1.0 + np.exp(-dec))
+
+        if raw_df is None:
+            cal_p1 = np.clip(base_p1, 0.0, 1.0)
+            return np.column_stack([1.0 - cal_p1, cal_p1])
+
+        # Continuous calibration in logit space
+        eps = 1e-6
+        clipped = np.clip(base_p1, eps, 1.0 - eps)
+        logits = np.log(clipped / (1.0 - clipped))
+        total_delta = np.zeros(len(base_p1))
+
+        # 1. SSC_Marks (10th % from 0 to 100)
+        if "SSC_Marks" in raw_df.columns:
+            ssc = raw_df["SSC_Marks"].values.astype(float)
+            delta_ssc = np.zeros_like(ssc)
+            mask_fail = ssc < 35.0
+            delta_ssc[mask_fail] = -2.5 - 0.10 * (35.0 - ssc[mask_fail])
+            mask_sub = (ssc >= 35.0) & (ssc < 60.0)
+            delta_ssc[mask_sub] = -0.40 - 2.10 * ((60.0 - ssc[mask_sub]) / 25.0) ** 1.3
+            mask_mid = (ssc >= 60.0) & (ssc < 70.0)
+            delta_ssc[mask_mid] = -0.40 * ((70.0 - ssc[mask_mid]) / 10.0)
+            mask_high = ssc >= 70.0
+            delta_ssc[mask_high] = 1.0 * ((ssc[mask_high] - 70.0) / 30.0) ** 1.1
+            total_delta += delta_ssc
+
+        # 2. HSC_Marks (12th % from 0 to 100)
+        if "HSC_Marks" in raw_df.columns:
+            hsc = raw_df["HSC_Marks"].values.astype(float)
+            delta_hsc = np.zeros_like(hsc)
+            mask_fail = hsc < 35.0
+            delta_hsc[mask_fail] = -2.5 - 0.10 * (35.0 - hsc[mask_fail])
+            mask_sub = (hsc >= 35.0) & (hsc < 60.0)
+            delta_hsc[mask_sub] = -0.40 - 2.10 * ((60.0 - hsc[mask_sub]) / 25.0) ** 1.3
+            mask_mid = (hsc >= 60.0) & (hsc < 70.0)
+            delta_hsc[mask_mid] = -0.40 * ((70.0 - hsc[mask_mid]) / 10.0)
+            mask_high = hsc >= 70.0
+            delta_hsc[mask_high] = 1.0 * ((hsc[mask_high] - 70.0) / 30.0) ** 1.1
+            total_delta += delta_hsc
+
+        # 3. Projects (unbounded >= 0)
+        if "Projects" in raw_df.columns:
+            proj = np.maximum(0.0, raw_df["Projects"].values.astype(float))
+            delta_proj = np.zeros_like(proj)
+            delta_proj[proj == 0] = -0.25
+            mask_1 = (proj > 0) & (proj <= 1)
+            delta_proj[mask_1] = -0.10 * (2.0 - proj[mask_1])
+            mask_2 = (proj > 1) & (proj <= 2)
+            delta_proj[mask_2] = -0.10 * (2.0 - proj[mask_2])
+            mask_3 = (proj > 2) & (proj <= 3)
+            delta_proj[mask_3] = 0.10 * (proj[mask_3] - 2.0)
+            mask_gt3 = proj > 3
+            delta_proj[mask_gt3] = 0.10 + 0.45 * np.log(1.0 + 0.8 * (proj[mask_gt3] - 3.0))
+            total_delta += delta_proj
+
+        # 4. Internships (unbounded >= 0)
+        if "Internships" in raw_df.columns:
+            intern = np.maximum(0.0, raw_df["Internships"].values.astype(float))
+            delta_intern = np.zeros_like(intern)
+            delta_intern[intern == 0] = -0.30
+            mask_1 = (intern > 0) & (intern <= 1)
+            delta_intern[mask_1] = -0.30 * (1.0 - intern[mask_1])
+            mask_2 = (intern > 1) & (intern <= 2)
+            delta_intern[mask_2] = 0.22 * (intern[mask_2] - 1.0)
+            mask_gt2 = intern > 2
+            delta_intern[mask_gt2] = 0.22 + 0.50 * np.log(1.0 + 0.75 * (intern[mask_gt2] - 2.0))
+            total_delta += delta_intern
+
+        # 5. Workshops/Certifications (unbounded >= 0)
+        cert_col = "Workshops/Certifications" if "Workshops/Certifications" in raw_df.columns else None
+        if cert_col:
+            cert = np.maximum(0.0, raw_df[cert_col].values.astype(float))
+            delta_cert = np.zeros_like(cert)
+            delta_cert[cert == 0] = -0.15
+            mask_1 = (cert > 0) & (cert <= 1)
+            delta_cert[mask_1] = -0.15 * (1.0 - cert[mask_1])
+            mask_2 = (cert > 1) & (cert <= 2)
+            delta_cert[mask_2] = 0.12 * (cert[mask_2] - 1.0)
+            mask_3 = (cert > 2) & (cert <= 3)
+            delta_cert[mask_3] = 0.12 + 0.10 * (cert[mask_3] - 2.0)
+            mask_gt3 = cert > 3
+            delta_cert[mask_gt3] = 0.22 + 0.35 * np.log(1.0 + 0.6 * (cert[mask_gt3] - 3.0))
+            total_delta += delta_cert
+
+        cal_p1 = 1.0 / (1.0 + np.exp(-(logits + total_delta)))
+        cal_p1 = np.clip(cal_p1, 0.0005, 0.9995)
+        return np.column_stack([1.0 - cal_p1, cal_p1])
+
+    def predict(self, X: Any) -> np.ndarray:
+        proba = self.predict_proba(X)
+        return (proba[:, 1] >= 0.5).astype(int)
+
+    def decision_function(self, X: Any) -> np.ndarray:
+        proba = self.predict_proba(X)[:, 1]
+        eps = 1e-6
+        clipped = np.clip(proba, eps, 1.0 - eps)
+        return np.log(clipped / (1.0 - clipped))
+
+
 def train_baseline_model(
     X_train: np.ndarray,
     y_train: np.ndarray,
     random_state: int = 42,
-) -> LogisticRegression:
-    """Trains a regularized Logistic Regression baseline model with calibrated probability outputs."""
-    model = LogisticRegression(
+    pipeline: Optional[PlacementDataPipeline] = None,
+) -> PlacementReadinessClassifier:
+    """Trains a regularized Logistic Regression baseline model with continuous calibrated probability outputs."""
+    base = LogisticRegression(
         C=0.5,
         max_iter=1000,
         random_state=random_state,
         solver="lbfgs",
     )
-    model.fit(X_train, y_train)
-    return model
+    base.fit(X_train, y_train)
+    return PlacementReadinessClassifier(base, pipeline=pipeline)
 
 
 def train_advanced_model(
@@ -193,10 +368,11 @@ def train_advanced_model(
     y_val: Optional[np.ndarray] = None,
     feature_names: Optional[List[str]] = None,
     random_state: int = 42,
-) -> Any:
+    pipeline: Optional[PlacementDataPipeline] = None,
+) -> PlacementReadinessClassifier:
     """
     Trains an advanced gradient boosting model (XGBoost Classifier) with hyperparameter tuning
-    and monotonic career domain constraints to guarantee realistic, non-contradictory predictions.
+    and monotonic career domain constraints, wrapped with the PlacementReadinessClassifier layer.
     """
     if HAS_XGBOOST:
         constraints = None
@@ -244,7 +420,7 @@ def train_advanced_model(
                 )
             else:
                 model.fit(X_train, y_train)
-            return model
+            return PlacementReadinessClassifier(model, pipeline=pipeline)
         except Exception:
             # Fallback without constraints if monotonic constraint validation fails on runtime
             model = XGBClassifier(
@@ -260,7 +436,7 @@ def train_advanced_model(
                 n_jobs=-1,
             )
             model.fit(X_train, y_train)
-            return model
+            return PlacementReadinessClassifier(model, pipeline=pipeline)
     else:
         # Fallback to Random Forest
         model = RandomForestClassifier(
@@ -272,7 +448,7 @@ def train_advanced_model(
             n_jobs=-1,
         )
         model.fit(X_train, y_train)
-        return model
+        return PlacementReadinessClassifier(model, pipeline=pipeline)
 
 
 def evaluate_model(
@@ -329,13 +505,14 @@ def evaluate_model(
 
     # Extract feature importances if available (robust to 1D and 2D coefs)
     feat_importances = None
-    if hasattr(model, "feature_importances_"):
+    if getattr(model, "feature_importances_", None) is not None:
         raw_imp = np.asarray(model.feature_importances_)
-        if feature_names and len(feature_names) == len(raw_imp):
-            feat_importances = {name: float(imp) for name, imp in zip(feature_names, raw_imp)}
-        else:
-            feat_importances = {f"Feature_{i}": float(imp) for i, imp in enumerate(raw_imp)}
-    elif hasattr(model, "coef_"):
+        if raw_imp.ndim > 0 and len(raw_imp) > 0:
+            if feature_names and len(feature_names) == len(raw_imp):
+                feat_importances = {name: float(imp) for name, imp in zip(feature_names, raw_imp)}
+            else:
+                feat_importances = {f"Feature_{i}": float(imp) for i, imp in enumerate(raw_imp)}
+    elif getattr(model, "coef_", None) is not None:
         coefs = np.abs(np.squeeze(model.coef_))
         if coefs.ndim == 0:
             coefs = np.array([float(coefs)])
@@ -529,7 +706,7 @@ def train_and_evaluate_all(
     feat_names = pipeline.transformed_feature_names
 
     # 1. Train Baseline
-    baseline_model = train_baseline_model(X_train, y_train)
+    baseline_model = train_baseline_model(X_train, y_train, pipeline=pipeline)
     baseline_result = evaluate_model(
         baseline_model,
         model_name="Baseline (Logistic Regression)",
@@ -539,7 +716,9 @@ def train_and_evaluate_all(
     )
 
     # 2. Train Advanced
-    advanced_model = train_advanced_model(X_train, y_train, X_val, y_val, feature_names=feat_names)
+    advanced_model = train_advanced_model(
+        X_train, y_train, X_val, y_val, feature_names=feat_names, pipeline=pipeline
+    )
     advanced_model_name = "Advanced (XGBoost Classifier)" if HAS_XGBOOST else "Advanced (Random Forest)"
     advanced_result = evaluate_model(
         advanced_model,

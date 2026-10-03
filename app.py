@@ -402,8 +402,8 @@ with st.sidebar:
     intern_stat = schema.feature_statistics.get("Internships", {})
     student_input["Internships"] = st.number_input(
         "Completed Internships:",
-        min_value=int(intern_stat.get("min", 0)),
-        max_value=int(intern_stat.get("max", 5)),
+        min_value=0,
+        max_value=int(intern_stat.get("max", 25)),
         value=int(preset_values.get("Internships", intern_stat.get("default", 1))),
         step=1,
     )
@@ -411,8 +411,8 @@ with st.sidebar:
     proj_stat = schema.feature_statistics.get("Projects", {})
     student_input["Projects"] = st.number_input(
         "Technical Projects Count:",
-        min_value=int(proj_stat.get("min", 0)),
-        max_value=int(proj_stat.get("max", 6)),
+        min_value=0,
+        max_value=int(proj_stat.get("max", 40)),
         value=int(preset_values.get("Projects", proj_stat.get("default", 2))),
         step=1,
     )
@@ -420,8 +420,8 @@ with st.sidebar:
     cert_stat = schema.feature_statistics.get("Workshops/Certifications", {})
     student_input["Workshops/Certifications"] = st.number_input(
         "Workshops / Certifications:",
-        min_value=int(cert_stat.get("min", 0)),
-        max_value=int(cert_stat.get("max", 5)),
+        min_value=0,
+        max_value=int(cert_stat.get("max", 30)),
         value=int(preset_values.get("Workshops/Certifications", cert_stat.get("default", 1))),
         step=1,
     )
@@ -469,21 +469,19 @@ with st.sidebar:
 
     col_m1, col_m2 = st.columns(2)
     with col_m1:
-        ssc_stat = schema.feature_statistics.get("SSC_Marks", {})
         student_input["SSC_Marks"] = st.number_input(
             "10th %:",
-            min_value=int(ssc_stat.get("min", 40)),
-            max_value=int(ssc_stat.get("max", 100)),
-            value=int(preset_values.get("SSC_Marks", ssc_stat.get("default", 70))),
+            min_value=0,
+            max_value=100,
+            value=int(preset_values.get("SSC_Marks", 70)),
             step=1,
         )
     with col_m2:
-        hsc_stat = schema.feature_statistics.get("HSC_Marks", {})
         student_input["HSC_Marks"] = st.number_input(
             "12th %:",
-            min_value=int(hsc_stat.get("min", 40)),
-            max_value=int(hsc_stat.get("max", 100)),
-            value=int(preset_values.get("HSC_Marks", hsc_stat.get("default", 75))),
+            min_value=0,
+            max_value=100,
+            value=int(preset_values.get("HSC_Marks", 75)),
             step=1,
         )
 
@@ -824,6 +822,8 @@ with tab2:
         float(student_input["SoftSkillsRating"]),
         str(student_input["PlacementTraining"]),
         str(student_input["ExtracurricularActivities"]),
+        int(student_input.get("SSC_Marks", 70)),
+        int(student_input.get("HSC_Marks", 75)),
     )
 
     if st.session_state.get("last_synced_cand_sig") != cand_sig:
@@ -836,6 +836,8 @@ with tab2:
         st.session_state["sim_soft"] = float(student_input["SoftSkillsRating"])
         st.session_state["sim_train"] = student_input["PlacementTraining"]
         st.session_state["sim_extra"] = student_input["ExtracurricularActivities"]
+        st.session_state["sim_ssc"] = int(student_input.get("SSC_Marks", 70))
+        st.session_state["sim_hsc"] = int(student_input.get("HSC_Marks", 75))
 
     col_sim_controls, col_sim_results = st.columns([1.1, 1.9])
 
@@ -850,16 +852,24 @@ with tab2:
             st.session_state["sim_soft"] = float(student_input["SoftSkillsRating"])
             st.session_state["sim_train"] = student_input["PlacementTraining"]
             st.session_state["sim_extra"] = student_input["ExtracurricularActivities"]
+            st.session_state["sim_ssc"] = int(student_input.get("SSC_Marks", 70))
+            st.session_state["sim_hsc"] = int(student_input.get("HSC_Marks", 75))
             st.rerun()
 
         sim_cgpa = st.slider("Simulated CGPA:", 5.0, 10.0, step=0.1, key="sim_cgpa")
-        sim_intern = st.number_input("Simulated Internships:", 0, 5, step=1, key="sim_intern")
-        sim_proj = st.number_input("Simulated Projects:", 0, 6, step=1, key="sim_proj")
-        sim_cert = st.number_input("Simulated Certifications:", 0, 5, step=1, key="sim_cert")
+        sim_intern = st.number_input("Simulated Internships:", 0, 25, step=1, key="sim_intern")
+        sim_proj = st.number_input("Simulated Projects:", 0, 40, step=1, key="sim_proj")
+        sim_cert = st.number_input("Simulated Certifications:", 0, 30, step=1, key="sim_cert")
         sim_apt = st.slider("Simulated Aptitude Score:", 40, 100, step=1, key="sim_apt")
         sim_soft = st.slider("Simulated Soft Skills:", 1.0, 5.0, step=0.1, key="sim_soft")
         sim_train = st.selectbox("Placement Training:", ["Yes", "No"], key="sim_train")
         sim_extra = st.selectbox("Extracurricular Activities:", ["Yes", "No"], key="sim_extra")
+
+        col_sim_m1, col_sim_m2 = st.columns(2)
+        with col_sim_m1:
+            sim_ssc = st.number_input("Simulated 10th %:", 0, 100, step=1, key="sim_ssc")
+        with col_sim_m2:
+            sim_hsc = st.number_input("Simulated 12th %:", 0, 100, step=1, key="sim_hsc")
 
         simulated_student = {
             **student_input,
@@ -871,6 +881,8 @@ with tab2:
             "SoftSkillsRating": sim_soft,
             "PlacementTraining": sim_train,
             "ExtracurricularActivities": sim_extra,
+            "SSC_Marks": sim_ssc,
+            "HSC_Marks": sim_hsc,
         }
 
     with col_sim_results:

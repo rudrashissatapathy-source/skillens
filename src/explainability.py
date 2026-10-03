@@ -82,6 +82,9 @@ class ExplainabilityEngine:
     ):
         self.model = model
         self.pipeline = pipeline
+        # Auto-link pipeline to model if model is a PlacementReadinessClassifier
+        if hasattr(self.model, "pipeline") and self.model.pipeline is None:
+            self.model.pipeline = self.pipeline
         self.background_data = background_data
         self.feature_names = pipeline.transformed_feature_names
         self.explainer = None
@@ -92,17 +95,23 @@ class ExplainabilityEngine:
         if not HAS_SHAP:
             return
 
+        target_model = getattr(self.model, "base_model", self.model)
+
         try:
             # Tree-based models (XGBoost, RandomForest)
-            if hasattr(self.model, "feature_importances_") or "XGB" in str(type(self.model)) or "Forest" in str(type(self.model)):
-                self.explainer = shap.TreeExplainer(self.model)
-            elif hasattr(self.model, "coef_"):
+            if (
+                hasattr(target_model, "feature_importances_")
+                or "XGB" in str(type(target_model))
+                or "Forest" in str(type(target_model))
+            ):
+                self.explainer = shap.TreeExplainer(target_model)
+            elif hasattr(target_model, "coef_"):
                 # Linear models
                 if self.background_data is not None and len(self.background_data) > 0:
                     bg_sample = self.background_data[: min(100, len(self.background_data))]
-                    self.explainer = shap.LinearExplainer(self.model, bg_sample)
+                    self.explainer = shap.LinearExplainer(target_model, bg_sample)
                 else:
-                    self.explainer = shap.Explainer(self.model)
+                    self.explainer = shap.Explainer(target_model)
         except Exception:
             # Fallback to general Explainer
             try:
@@ -363,7 +372,7 @@ class ExplainabilityEngine:
         elif feature == "SoftSkillsRating":
             return num_val >= 4.0
         elif feature in {"SSC_Marks", "HSC_Marks"}:
-            return num_val >= 70.0
+            return num_val >= 75.0
         elif feature == "Workshops/Certifications":
             return num_val >= 1
 
@@ -392,7 +401,7 @@ class ExplainabilityEngine:
         elif feature == "SoftSkillsRating":
             return num_val < 4.0
         elif feature in {"SSC_Marks", "HSC_Marks"}:
-            return num_val < 65.0
+            return num_val < 60.0
         elif feature == "Workshops/Certifications":
             return num_val < 1
 

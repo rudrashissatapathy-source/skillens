@@ -240,3 +240,90 @@ def test_cohort_benchmarks(sample_raw_dataframe):
     assert "placement_rate" in benchmarks
     assert "features" in benchmarks
     assert "CGPA" in benchmarks["features"]
+
+
+def test_full_spectrum_marks_monotonicity(sample_raw_dataframe):
+    """Verifies that 10th and 12th marks predict from 0% to 100% with strict monotonicity."""
+    pipeline = PlacementDataPipeline()
+    pipeline.fit(sample_raw_dataframe)
+    X = pipeline.transform(sample_raw_dataframe)
+    y = pipeline.encode_target(sample_raw_dataframe["PlacementStatus"])
+
+    model = train_advanced_model(X, y, pipeline=pipeline)
+    engine = ExplainabilityEngine(model=model, pipeline=pipeline, background_data=X)
+
+    base_cand = {
+        "CGPA": 7.5,
+        "Internships": 1,
+        "Projects": 2,
+        "Workshops/Certifications": 1,
+        "AptitudeTestScore": 75,
+        "SoftSkillsRating": 4.0,
+        "ExtracurricularActivities": "Yes",
+        "PlacementTraining": "Yes",
+        "SSC_Marks": 70,
+        "HSC_Marks": 70,
+    }
+
+    # Test 10th% (SSC_Marks) from 0 to 100
+    marks_test = [0, 15, 30, 35, 50, 60, 70, 80, 90, 100]
+    ssc_probs = []
+    for m in marks_test:
+        c = dict(base_cand, SSC_Marks=m)
+        exp = engine.explain_instance(c)
+        assert 0.0 <= exp.predicted_probability <= 1.0
+        ssc_probs.append(exp.predicted_probability)
+
+    for i in range(len(ssc_probs) - 1):
+        assert ssc_probs[i] <= ssc_probs[i + 1], f"Monotonicity failed at SSC {marks_test[i]} -> {marks_test[i+1]}"
+
+    # Extreme failure test: 0% marks must result in severe elimination (< 0.05)
+    assert ssc_probs[0] < 0.05, f"0% marks did not reflect severe penalty: {ssc_probs[0]}"
+
+
+def test_unbounded_projects_internships_monotonicity(sample_raw_dataframe):
+    """Verifies that project and internship counts above zero strictly boost readiness with diminishing returns."""
+    pipeline = PlacementDataPipeline()
+    pipeline.fit(sample_raw_dataframe)
+    X = pipeline.transform(sample_raw_dataframe)
+    y = pipeline.encode_target(sample_raw_dataframe["PlacementStatus"])
+
+    model = train_advanced_model(X, y, pipeline=pipeline)
+    engine = ExplainabilityEngine(model=model, pipeline=pipeline, background_data=X)
+
+    base_cand = {
+        "CGPA": 7.5,
+        "Internships": 1,
+        "Projects": 2,
+        "Workshops/Certifications": 1,
+        "AptitudeTestScore": 75,
+        "SoftSkillsRating": 4.0,
+        "ExtracurricularActivities": "Yes",
+        "PlacementTraining": "Yes",
+        "SSC_Marks": 70,
+        "HSC_Marks": 70,
+    }
+
+    # Test projects from 0 to 35
+    proj_counts = [0, 1, 2, 3, 5, 8, 15, 25, 35]
+    proj_probs = []
+    for p in proj_counts:
+        c = dict(base_cand, Projects=p)
+        exp = engine.explain_instance(c)
+        assert 0.0 <= exp.predicted_probability <= 1.0
+        proj_probs.append(exp.predicted_probability)
+
+    for i in range(len(proj_probs) - 1):
+        assert proj_probs[i] <= proj_probs[i + 1], f"Monotonicity failed at Projects {proj_counts[i]} -> {proj_counts[i+1]}"
+
+    # Test internships from 0 to 20
+    intern_counts = [0, 1, 2, 3, 5, 8, 12, 20]
+    intern_probs = []
+    for intern in intern_counts:
+        c = dict(base_cand, Internships=intern)
+        exp = engine.explain_instance(c)
+        assert 0.0 <= exp.predicted_probability <= 1.0
+        intern_probs.append(exp.predicted_probability)
+
+    for i in range(len(intern_probs) - 1):
+        assert intern_probs[i] <= intern_probs[i + 1], f"Monotonicity failed at Internships {intern_counts[i]} -> {intern_counts[i+1]}"

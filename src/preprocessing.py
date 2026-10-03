@@ -145,10 +145,39 @@ class SchemaParser:
         # 6. Extract Feature Statistics (min, max, median, mean, categories) for UI validation
         for col in schema.numeric_features:
             series = pd.to_numeric(df[col], errors="coerce")
+            raw_min = float(series.min()) if not series.empty else 0.0
+            raw_max = float(series.max()) if not series.empty else 100.0
+
+            # Domain-calibrated UI limits for full spectrum prediction
+            if col in {"SSC_Marks", "HSC_Marks"}:
+                feat_min = 0.0
+                feat_max = 100.0
+            elif col == "Internships":
+                feat_min = 0.0
+                feat_max = max(25.0, raw_max)
+            elif col == "Projects":
+                feat_min = 0.0
+                feat_max = max(40.0, raw_max)
+            elif col in {"Workshops/Certifications", "Certifications"}:
+                feat_min = 0.0
+                feat_max = max(30.0, raw_max)
+            elif col == "CGPA":
+                feat_min = min(0.0, raw_min)
+                feat_max = 10.0
+            elif col == "AptitudeTestScore":
+                feat_min = 0.0
+                feat_max = 100.0
+            elif col == "SoftSkillsRating":
+                feat_min = 1.0
+                feat_max = 5.0
+            else:
+                feat_min = raw_min
+                feat_max = raw_max
+
             schema.feature_statistics[col] = {
                 "type": "numeric",
-                "min": float(series.min()) if not series.empty else 0.0,
-                "max": float(series.max()) if not series.empty else 100.0,
+                "min": feat_min,
+                "max": feat_max,
                 "mean": float(series.mean()) if not series.empty else 50.0,
                 "median": float(series.median()) if not series.empty else 50.0,
                 "std": float(series.std()) if not series.empty else 1.0,
