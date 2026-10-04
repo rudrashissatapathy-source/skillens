@@ -755,11 +755,21 @@ def train_and_evaluate_all(
     )
 
     if save_path:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump(artifacts.to_dict(), save_path)
+        save_model_artifacts(artifacts, save_path)
 
     return artifacts
+
+
+def save_model_artifacts(
+    artifacts: ModelArtifacts,
+    save_path: Union[str, Path] = "models/model_artifacts.joblib",
+) -> Path:
+    """Serializes ModelArtifacts dictionary payload to disk using joblib."""
+    path = Path(save_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = artifacts.to_dict() if hasattr(artifacts, "to_dict") else artifacts
+    joblib.dump(payload, path)
+    return path
 
 
 def load_model_artifacts(

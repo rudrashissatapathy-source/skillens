@@ -9,7 +9,7 @@ on:
       target_url:
         description: 'Streamlit App URL to ping'
         required: false
-        default: 'https://skillens.streamlit.app'
+        default: 'https://rudrashissatapathy-source-skillens-app-ykfecg.streamlit.app'
 
 jobs:
   ping-streamlit:
@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Ping Live Application
         run: |
-          TARGET_URL="${{ github.event.inputs.target_url || secrets.STREAMLIT_APP_URL || 'https://skillens.streamlit.app' }}"
+          TARGET_URL="${{ github.event.inputs.target_url || secrets.STREAMLIT_APP_URL || 'https://rudrashissatapathy-source-skillens-app-ykfecg.streamlit.app' }}"
           echo "Pinging Streamlit App at: $TARGET_URL"
           
           # Perform curl request with follow-redirects and timeout

@@ -12,7 +12,7 @@
 # Quick URL Redirects
 [[redirects]]
   from = "/app"
-  to = "https://skillens.streamlit.app"
+  to = "https://rudrashissatapathy-source-skillens-app-ykfecg.streamlit.app"
   status = 302
   force = true
 
