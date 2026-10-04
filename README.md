@@ -162,7 +162,7 @@ Deploy the high-speed SkillLens frontend portal and client ML sandbox directly o
 
 1. **Deploy with 1 Click:** Click [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/rudrashissatapathy-source/skillens)
 2. **Connect GitHub:** Link your repository (`rudrashissatapathy-source/skillens`).
-3. **Automatic Build Detection:** Netlify automatically detects `netlify.toml` with publish directory set to `public/`.
+3. **Zero Configuration Needed:** Netlify detects `index.html` and `netlify.toml` directly at the root (`.`) with no build steps or command requirements.
 4. **Permanent Live URL:** Instantly live at `https://skillens.netlify.app` with zero sleep timeout.
 
 ---

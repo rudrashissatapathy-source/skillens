@@ -1,6 +1,5 @@
 [build]
-  publish = "public"
-  command = "echo 'SkillLens Netlify deployment bundle compiled successfully'"
+  publish = "."
 
 [[headers]]
   for = "/*"
