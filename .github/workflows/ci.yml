@@ -1,0 +1,40 @@
+name: SkillLens CI / Model Verification
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  test-and-lint:
+    name: Test & Validate ML Pipeline
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify Preprocessing & Model Serialization
+        run: |
+          python -c "from src.preprocessing import resolve_dataset_path, SchemaParser, load_and_split_data; p = resolve_dataset_path(); print('Dataset successfully resolved at:', p)"
+          python -m src.preprocessing
+
+      - name: Execute Pytest Suite
+        run: |
+          pytest tests/test_pipeline.py -v

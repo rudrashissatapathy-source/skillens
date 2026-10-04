@@ -46,11 +46,11 @@ def resolve_dataset_path(data_dir: Union[str, Path] = "data") -> Path:
     """
     base_dir = Path(data_dir)
     possible_paths = [
-        base_dir / "kaggle_placement_data.csv.csv",
         base_dir / "kaggle_placement_data.csv",
+        base_dir / "kaggle_placement_data.csv.csv",
         base_dir / "placement_data.csv",
-        Path("kaggle_placement_data.csv.csv"),
         Path("kaggle_placement_data.csv"),
+        Path("kaggle_placement_data.csv.csv"),
     ]
 
     for p in possible_paths:

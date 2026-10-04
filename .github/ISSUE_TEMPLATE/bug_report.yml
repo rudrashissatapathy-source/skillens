@@ -1,0 +1,42 @@
+name: 🐛 Bug Report
+description: File a bug report to help improve SkillLens
+title: "[BUG]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue!
+  - type: input
+    id: version
+    attributes:
+      label: Python & Library Versions
+      description: What version of Python, Streamlit, and XGBoost are you running?
+      placeholder: "e.g., Python 3.11, Streamlit 1.35.0, XGBoost 2.0.3"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe what bug you encountered.
+      placeholder: Tell us what you see vs. what you expected to see.
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Provide step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Run `streamlit run app.py`
+        2. Navigate to 'What-If Simulation'
+        3. Adjust slider X...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Log Output or Stack Trace
+      description: Paste any error messages or tracebacks.
+      render: shell
