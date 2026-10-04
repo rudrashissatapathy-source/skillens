@@ -3,6 +3,7 @@
 # 🎓 SkillLens
 ### AI-Powered Placement Readiness & Career Intelligence Engine
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://skillens.streamlit.app)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.14-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.35+-FF4B4B.svg?logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![Scikit-Learn](https://img.shields.io/badge/scikit--learn-1.3+-F7931E.svg?logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
@@ -14,7 +15,9 @@
 
 **SkillLens** is an enterprise-grade, transparent Machine Learning platform that evaluates undergraduate student placement readiness, explains individual predictions via **SHAP (SHapley Additive exPlanations)**, and empowers candidates with a real-time **What-If Simulation Sandbox** to strategize their career preparation.
 
-[Explore Features](#-key-features) • [System Architecture](#-system-architecture) • [Quick Start](#-quick-start-guide) • [Model Benchmarks](#-model-benchmarking) • [API & Modules](#-project-structure)
+### 🚀 **Live Demo:** [skillens.streamlit.app](https://skillens.streamlit.app) • [![Deploy to Streamlit](https://img.shields.io/badge/Deploy%20to-Streamlit%20Cloud-FF4B4B?style=flat&logo=streamlit&logoColor=white)](https://share.streamlit.io/deploy?repository=rudrashissatapathy-source/skillens&branch=main&mainModule=app.py)
+
+[Live App](https://skillens.streamlit.app) • [Explore Features](#-key-features) • [System Architecture](#-system-architecture) • [Quick Start](#-quick-start-guide) • [Model Benchmarks](#-model-benchmarking) • [API & Modules](#-project-structure)
 
 ---
 
@@ -136,6 +139,19 @@ uv run pytest
 # Launch the Streamlit application
 uv run streamlit run app.py
 ```
+
+### Option C: 1-Click Streamlit Community Cloud (Permanent Free Hosting)
+
+SkillLens is configured for instant, permanent zero-cost hosting on Streamlit Community Cloud:
+
+1. **Deploy with 1 Click:** Click the [![Deploy to Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy?repository=rudrashissatapathy-source/skillens&branch=main&mainModule=app.py) button.
+2. **Authorize Repository:** Sign in with your GitHub account (`rudrashissatapathy-source`) and authorize access.
+3. **Confirm Settings:**
+   - **Repository:** `rudrashissatapathy-source/skillens`
+   - **Branch:** `main`
+   - **Main file path:** `app.py`
+   - **App URL:** `skillens.streamlit.app`
+4. **Permanent 24/7 Uptime:** An automated GitHub Action (`.github/workflows/keep_alive.yml`) runs every 6 hours to ensure the app never hibernates from inactivity.
 
 ---
 
