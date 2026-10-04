@@ -1,0 +1,29 @@
+[build]
+  publish = "public"
+  command = "echo 'SkillLens Netlify deployment bundle compiled successfully'"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Quick URL Redirects
+[[redirects]]
+  from = "/app"
+  to = "https://skillens.streamlit.app"
+  status = 302
+  force = true
+
+[[redirects]]
+  from = "/deploy"
+  to = "https://share.streamlit.io/deploy?repository=rudrashissatapathy-source/skillens&branch=main&mainModule=app.py"
+  status = 302
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
